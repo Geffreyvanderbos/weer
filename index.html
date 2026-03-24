@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Weer">
+  <meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Weer</title>
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Tokens ── */
+    :root {
+      --bg:          #ffffff;
+      --fg:          #111111;
+      --secondary:   #595959; /* 7:1 on white — passes AA for all sizes */
+      --decorative:  #b8b8b8; /* purely visual separators, no text */
+      --border:      #e0e0e0;
+      --tap:         rgba(0, 0, 0, 0.06);
+      --focus-ring:  #0060df;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:          #111111;
+        --fg:          #f0f0f0;
+        --secondary:   #a8a8a8; /* 8:1 on #111 — passes AA */
+        --decorative:  #444444;
+        --border:      #2a2a2a;
+        --tap:         rgba(255, 255, 255, 0.07);
+        --focus-ring:  #80b3ff;
+      }
+    }
+
+    /* ── Base ── */
+    html { height: 100%; overflow: hidden; }
+
+    body {
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      -webkit-text-size-adjust: 100%;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Accessibility utility ── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* ── Focus ring ── */
+    :focus { outline: none; }
+
+    :focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+      border-radius: 3px;
+    }
+
+    /* ── App shell ── */
+    .app {
+      height: 100dvh;
+      height: 100vh; /* fallback */
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding-top:    env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left:   env(safe-area-inset-left);
+      padding-right:  env(safe-area-inset-right);
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 20px 14px;
+      flex-shrink: 0;
+    }
+
+    /* h1 — use heading element for semantics */
+    .city-name {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.6px;
+      line-height: 1;
+    }
+
+    .header-btn {
+      background: none;
+      border: none;
+      color: var(--secondary);
+      font-size: 15px;
+      font-family: inherit;
+      cursor: pointer;
+      /* minimum 44×44 touch target */
+      min-height: 44px;
+      padding: 0 4px 0 16px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── Forecast wrapper (scrollable) ── */
+    .forecast-wrap {
+      flex: 1;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+
+    /* ── Forecast table ── */
+    .forecast {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    /* Column widths — sized for monospace 14px: ~8.4px/char
+       col-lo:  "-15°"  = 4 chars → 48px
+       col-hi:  "·14°"  = 4 chars → 48px (includes separator)
+       col-precip: "100%" + 20px right margin → 60px            */
+    .forecast col.col-date   { width: auto; }
+    .forecast col.col-lo     { width: 48px; }
+    .forecast col.col-hi     { width: 48px; }
+    .forecast col.col-precip { width: 60px; }
+
+    /* Sticky header */
+    .forecast thead th {
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 1;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--secondary);
+      padding: 0 0 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .forecast thead th:first-child { padding-left: 20px; text-align: left; }
+    .forecast thead th.col-lo      { text-align: right; }
+    .forecast thead th.col-hi      { text-align: left; padding-left: 4px; }
+    .forecast thead th.col-precip  { text-align: right; padding-right: 20px; }
+
+    /* Body rows */
+    .forecast tbody tr {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .forecast tbody tr:first-child td {
+      padding-top: 12px;
+    }
+
+    .forecast tbody td {
+      padding: 11px 0;
+      font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Menlo', monospace;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+
+    .forecast tbody td:first-child   { padding-left: 20px; }
+    .forecast tbody td:last-child    { padding-right: 20px; }
+
+    /* Today row */
+    .forecast tbody tr[aria-current="date"] .day-date {
+      font-weight: 600;
+    }
+
+    /* Date cell */
+    .day-date {
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+    }
+
+    .date-str {
+      color: var(--fg);
+    }
+
+    .weekday {
+      color: var(--secondary);
+      font-size: 13px;
+    }
+
+    /* Today: weekday also full contrast */
+    .forecast tbody tr[aria-current="date"] .weekday {
+      color: var(--fg);
+    }
+
+    /* Temperature cells — monospace makes tabular-nums redundant */
+    .col-lo {
+      text-align: right;
+      color: var(--secondary);
+    }
+
+    .col-hi {
+      text-align: left;
+      padding-left: 2px;
+    }
+
+    /* Separator between lo and hi — decorative, aria-hidden in markup */
+    .temp-sep {
+      color: var(--decorative);
+      user-select: none;
+    }
+
+    /* Precipitation cell */
+    .col-precip {
+      text-align: right;
+      color: var(--secondary);
+    }
+
+    .col-precip.wet {
+      color: var(--fg);
+      font-weight: 500;
+    }
+
+    /* ── Status (loading / error) ── */
+    .status-msg {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--secondary);
+      font-size: 15px;
+    }
+
+    /* ── Navigation dots ── */
+    .dots-nav {
+      display: flex;
+      justify-content: center;
+      padding: 10px 20px 8px;
+      flex-shrink: 0;
+      min-height: 38px;
+    }
+
+    .dots {
+      display: flex;
+      gap: 2px;
+      align-items: center;
+    }
+
+    /* Each dot is a button with a 32px touch target; the visual dot is via ::after */
+    .dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+
+    .dot::after {
+      content: '';
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.15s, transform 0.15s;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .dot::after { transition: none; }
+    }
+
+    .dot[aria-current="true"]::after {
+      background: var(--fg);
+      transform: scale(1.25);
+    }
+
+    /* ── Settings panel ── */
+    .settings {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      padding-top:    env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      /* Closed state */
+      transform: translateX(100%);
+      visibility: hidden;
+      /* Delay visibility until transform animation ends */
+      transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                  visibility 0s linear 0.28s;
+      will-change: transform;
+    }
+
+    .settings.open {
+      transform: translateX(0);
+      visibility: visible;
+      transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .settings, .settings.open { transition: none; }
+    }
+
+    .settings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 20px 14px;
+      flex-shrink: 0;
+    }
+
+    /* h2 inside dialog */
+    .settings-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.6px;
+    }
+
+    .settings-list {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      list-style: none;
+    }
+
+    /* City toggle buttons */
+    .city-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 0 20px;
+      min-height: 52px;
+      background: none;
+      border: none;
+      border-top: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 16px;
+      color: var(--fg);
+      cursor: pointer;
+      text-align: left;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .settings-list li:last-child .city-item {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .city-item:active {
+      background: var(--tap);
+    }
+
+    /* Custom checkbox indicator (aria-hidden, visual only) */
+    .city-check {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: border-color 0.15s, background 0.15s;
+      pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .city-check { transition: none; }
+    }
+
+    .city-item[aria-pressed="true"] .city-check {
+      border-color: var(--fg);
+      background: var(--fg);
+    }
+
+    .city-item[aria-pressed="true"] .city-check::after {
+      content: '';
+      display: block;
+      width: 9px;
+      height: 5px;
+      border-left: 1.5px solid var(--bg);
+      border-bottom: 1.5px solid var(--bg);
+      transform: rotate(-45deg) translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Screen reader live announcer (visually hidden) -->
+<div id="sr-status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+<!-- Main app -->
+<div class="app" id="app">
+  <header class="header">
+    <h1 class="city-name" id="city-name"> </h1>
+    <button class="header-btn"
+            id="settings-btn"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="settings">Locaties</button>
+  </header>
+
+  <!-- Forecast or status message renders here -->
+  <div id="forecast-container"></div>
+
+  <!-- Location dot navigation -->
+  <nav class="dots-nav" aria-label="Locatienavigatie" id="dots-nav">
+    <div class="dots" id="dots" role="list"></div>
+  </nav>
+</div>
+
+<!-- Settings dialog -->
+<div role="dialog"
+     aria-modal="true"
+     aria-labelledby="settings-heading"
+     class="settings"
+     id="settings"
+     aria-hidden="true">
+  <div class="settings-header">
+    <h2 class="settings-title" id="settings-heading">Locaties</h2>
+    <button class="header-btn"
+            id="settings-close"
+            type="button">Klaar</button>
+  </div>
+  <ul class="settings-list" id="city-list" aria-label="Beschikbare locaties"></ul>
+</div>
+
+<script>
+'use strict';
+
+/* ── Cities ─────────────────────────────────────────────────────────────── */
+const CITIES = [
+  { name: 'Amsterdam',   lat: 52.3676, lon: 4.9041 },
+  { name: 'Rotterdam',   lat: 51.9244, lon: 4.4777 },
+  { name: 'Den Haag',    lat: 52.0705, lon: 4.3007 },
+  { name: 'Utrecht',     lat: 52.0907, lon: 5.1214 },
+  { name: 'Eindhoven',   lat: 51.4416, lon: 5.4697 },
+  { name: 'Tilburg',     lat: 51.5555, lon: 5.0913 },
+  { name: 'Groningen',   lat: 53.2194, lon: 6.5665 },
+  { name: 'Almere',      lat: 52.3508, lon: 5.2647 },
+  { name: 'Breda',       lat: 51.5719, lon: 4.7683 },
+  { name: 'Nijmegen',    lat: 51.8426, lon: 5.8546 },
+  { name: 'Enschede',    lat: 52.2215, lon: 6.8937 },
+  { name: 'Haarlem',     lat: 52.3874, lon: 4.6462 },
+  { name: 'Arnhem',      lat: 51.9851, lon: 5.8987 },
+  { name: 'Amersfoort',  lat: 52.1561, lon: 5.3878 },
+  { name: 'Apeldoorn',   lat: 52.2112, lon: 5.9699 },
+  { name: 'Zwolle',      lat: 52.5168, lon: 6.0830 },
+  { name: 'Leiden',      lat: 52.1601, lon: 4.4970 },
+  { name: 'Dordrecht',   lat: 51.8133, lon: 4.6901 },
+  { name: 'Zoetermeer',  lat: 52.0574, lon: 4.4942 },
+  { name: 'Delft',       lat: 52.0116, lon: 4.3571 },
+  { name: 'Alkmaar',     lat: 52.6324, lon: 4.7534 },
+  { name: 'Deventer',    lat: 52.2551, lon: 6.1639 },
+  { name: 'Maastricht',  lat: 50.8514, lon: 5.6910 },
+  { name: 'Middelburg',  lat: 51.4988, lon: 3.6136 },
+  { name: 'Leeuwarden',  lat: 53.2012, lon: 5.7999 },
+  { name: 'Venlo',       lat: 51.3704, lon: 6.1724 },
+  { name: 'Helmond',     lat: 51.4777, lon: 5.6614 },
+  { name: 'Zaandam',     lat: 52.4440, lon: 4.8204 },
+  { name: 'Assen',       lat: 52.9929, lon: 6.5642 },
+  { name: 'Emmen',       lat: 52.7791, lon: 6.8996 },
+];
+
+const DAYS_NL   = ['zo','ma','di','wo','do','vr','za'];
+const MONTHS_NL = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+
+// Full day names for aria-labels
+const DAYS_FULL   = ['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
+const MONTHS_FULL = ['januari','februari','maart','april','mei','juni',
+                     'juli','augustus','september','oktober','november','december'];
+
+/* ── State ──────────────────────────────────────────────────────────────── */
+let selected = ['Amsterdam'];
+let idx      = 0;
+let cache    = {};
+
+try { selected = JSON.parse(localStorage.getItem('w-cities') || '["Amsterdam"]'); } catch {}
+try { idx      = parseInt(localStorage.getItem('w-idx') || '0', 10); }            catch {}
+try { cache    = JSON.parse(localStorage.getItem('w-cache') || '{}'); }            catch {}
+
+if (!Array.isArray(selected) || selected.length === 0) selected = ['Amsterdam'];
+if (isNaN(idx) || idx < 0 || idx >= selected.length) idx = 0;
+
+function persist() {
+  localStorage.setItem('w-cities', JSON.stringify(selected));
+  localStorage.setItem('w-idx', String(idx));
+}
+
+function persistCache() {
+  const now = Date.now();
+  const slim = {};
+  for (const name of selected) {
+    if (cache[name] && now - cache[name].ts < 3 * 3600 * 1000) slim[name] = cache[name];
+  }
+  try { localStorage.setItem('w-cache', JSON.stringify(slim)); } catch {}
+}
+
+/* ── Screen reader announcements ────────────────────────────────────────── */
+function announce(msg) {
+  const el = document.getElementById('sr-status');
+  el.textContent = '';
+  // Brief timeout ensures re-announcement even if same string
+  setTimeout(() => { el.textContent = msg; }, 50);
+}
+
+/* ── API ────────────────────────────────────────────────────────────────── */
+async function fetchWeather(city) {
+  const FIELDS = 'apparent_temperature_min,apparent_temperature_max,precipitation_probability_max';
+  const url = `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${city.lat}&longitude=${city.lon}` +
+    `&daily=${FIELDS}&timezone=Europe%2FAmsterdam&forecast_days=14`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function getWeather(cityName) {
+  const city = CITIES.find(c => c.name === cityName);
+  if (!city) throw new Error('Unknown city');
+  const now = Date.now();
+  const hit = cache[cityName];
+  if (hit && now - hit.ts < 3 * 3600 * 1000) return hit.data;
+  const data = await fetchWeather(city);
+  cache[cityName] = { ts: now, data };
+  persistCache();
+  return data;
+}
+
+/* ── Date helpers ───────────────────────────────────────────────────────── */
+function todayString() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
+
+function parseDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return {
+    dayIdx:   date.getDay(),
+    day:      d,
+    monthIdx: m - 1,
+  };
+}
+
+/* ── Rendering ──────────────────────────────────────────────────────────── */
+function buildForecastHTML(data, cityName) {
+  const { time, apparent_temperature_min, apparent_temperature_max, precipitation_probability_max } = data.daily;
+  const today = todayString();
+
+  const rows = time.map((t, i) => {
+    const { dayIdx, day, monthIdx } = parseDate(t);
+    const lo      = Math.round(apparent_temperature_min[i]);
+    const hi      = Math.round(apparent_temperature_max[i]);
+    const precip  = precipitation_probability_max[i] ?? 0;
+    const isToday = t === today;
+
+    // Full strings for screen readers
+    const fullDate   = `${isToday ? 'vandaag, ' : ''}${DAYS_FULL[dayIdx]} ${day} ${MONTHS_FULL[monthIdx]}`;
+    const tempLabel  = `gevoeld laag ${lo} graden, gevoeld hoog ${hi} graden`;
+    const precipLabel = `neerslagkans ${precip} procent`;
+
+    return `<tr${isToday ? ' aria-current="date"' : ''}>
+  <td class="day-date">
+    <span class="date-str" aria-hidden="true">${String(day).padStart(2,'0')} ${MONTHS_NL[monthIdx]}</span>
+    <span class="weekday" aria-hidden="true">${DAYS_NL[dayIdx]}</span>
+    <span class="sr-only">${fullDate}</span>
+  </td>
+  <td class="col-lo" aria-label="${tempLabel}">
+    <span aria-hidden="true">${lo}°</span>
+  </td>
+  <td class="col-hi">
+    <span class="temp-sep" aria-hidden="true">·</span
+    ><span aria-hidden="true">${hi}°</span>
+  </td>
+  <td class="col-precip${precip >= 40 ? ' wet' : ''}" aria-label="${precipLabel}">
+    <span aria-hidden="true">${precip}%</span>
+  </td>
+</tr>`;
+  }).join('');
+
+  return `<div class="forecast-wrap">
+  <table class="forecast" aria-label="14-daagse weersvoorspelling voor ${cityName}">
+    <colgroup>
+      <col class="col-date">
+      <col class="col-lo">
+      <col class="col-hi">
+      <col class="col-precip">
+    </colgroup>
+    <thead>
+      <tr>
+        <th scope="col">Datum</th>
+        <th scope="col" class="col-lo">temp.</th>
+        <th scope="col" class="col-hi"> </th>
+        <th scope="col" class="col-precip">Neersl.</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</div>`;
+}
+
+function renderDots() {
+  const dotsEl = document.getElementById('dots');
+  if (selected.length <= 1) { dotsEl.innerHTML = ''; return; }
+  dotsEl.innerHTML = selected.map((name, i) => {
+    const isCurrent = i === idx;
+    const label = `${name} (${i + 1} van ${selected.length})${isCurrent ? ', huidig' : ''}`;
+    return `<button type="button"
+  class="dot"
+  role="listitem"
+  data-i="${i}"
+  aria-label="${label}"
+  aria-current="${isCurrent}"
+></button>`;
+  }).join('');
+}
+
+async function showCity(newIdx) {
+  idx = newIdx;
+  persist();
+
+  const name      = selected[idx];
+  const container = document.getElementById('forecast-container');
+
+  document.getElementById('city-name').textContent = name;
+  renderDots();
+
+  // Show cached data immediately, mark as busy while refreshing
+  if (cache[name]) {
+    container.innerHTML = buildForecastHTML(cache[name].data, name);
+  } else {
+    container.innerHTML = '<div class="status-msg" role="status">Laden\u2026</div>';
+    announce('Laden\u2026');
+  }
+
+  try {
+    const data = await getWeather(name);
+    container.innerHTML = buildForecastHTML(data, name);
+    announce(`Weersdata voor ${name} geladen`);
+  } catch {
+    if (!cache[name]) {
+      container.innerHTML = '<div class="status-msg" role="alert">Geen verbinding</div>';
+      announce('Geen verbinding beschikbaar');
+    }
+  }
+}
+
+/* ── Settings — focus management ────────────────────────────────────────── */
+const FOCUSABLE_SEL = 'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+function openSettings() {
+  const dlg = document.getElementById('settings');
+  renderCityList();
+  dlg.classList.add('open');
+  dlg.setAttribute('aria-hidden', 'false');
+  document.getElementById('settings-btn').setAttribute('aria-expanded', 'true');
+
+  // Focus first focusable element in dialog
+  const first = dlg.querySelector(FOCUSABLE_SEL);
+  if (first) requestAnimationFrame(() => first.focus());
+
+  dlg.addEventListener('keydown', handleDialogKey);
+}
+
+function closeSettings() {
+  const dlg = document.getElementById('settings');
+  dlg.classList.remove('open');
+  dlg.setAttribute('aria-hidden', 'true');
+  document.getElementById('settings-btn').setAttribute('aria-expanded', 'false');
+  document.getElementById('settings-btn').focus();
+  dlg.removeEventListener('keydown', handleDialogKey);
+
+  // Sync in case selection changed
+  if (selected.length === 0) selected = ['Amsterdam'];
+  if (idx >= selected.length) idx = selected.length - 1;
+  showCity(idx);
+}
+
+function handleDialogKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+  if (e.key !== 'Tab') return;
+
+  const dlg      = document.getElementById('settings');
+  const focusable = Array.from(dlg.querySelectorAll(FOCUSABLE_SEL));
+  const first    = focusable[0];
+  const last     = focusable[focusable.length - 1];
+
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
+  }
+}
+
+/* ── Settings — city list ───────────────────────────────────────────────── */
+function renderCityList() {
+  document.getElementById('city-list').innerHTML = CITIES.map(city => {
+    const on = selected.includes(city.name);
+    return `<li>
+  <button type="button"
+          class="city-item"
+          aria-pressed="${on}"
+          data-city="${city.name}">
+    ${city.name}
+    <span class="city-check" aria-hidden="true"></span>
+  </button>
+</li>`;
+  }).join('');
+}
+
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+
+document.getElementById('city-list').addEventListener('click', e => {
+  const btn = e.target.closest('.city-item');
+  if (!btn) return;
+
+  const name = btn.dataset.city;
+  const pos  = selected.indexOf(name);
+
+  if (pos === -1) {
+    selected.push(name);
+  } else {
+    if (selected.length === 1) return; // always keep ≥1
+    selected.splice(pos, 1);
+    if (idx >= selected.length) idx = selected.length - 1;
+  }
+
+  persist();
+  renderCityList();
+  renderDots();
+  // Announce toggle state for screen readers
+  const newState = selected.includes(name) ? 'toegevoegd' : 'verwijderd';
+  announce(`${name} ${newState}`);
+});
+
+/* ── Swipe ──────────────────────────────────────────────────────────────── */
+let tx0 = 0, ty0 = 0;
+
+document.addEventListener('touchstart', e => {
+  tx0 = e.touches[0].clientX;
+  ty0 = e.touches[0].clientY;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  if (document.getElementById('settings').classList.contains('open')) return;
+  const dx = e.changedTouches[0].clientX - tx0;
+  const dy = e.changedTouches[0].clientY - ty0;
+  if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+  if (dx < 0 && idx < selected.length - 1) showCity(idx + 1);
+  if (dx > 0 && idx > 0)                   showCity(idx - 1);
+}, { passive: true });
+
+/* ── Dots tap ───────────────────────────────────────────────────────────── */
+document.getElementById('dots').addEventListener('click', e => {
+  const dot = e.target.closest('.dot');
+  if (dot) showCity(parseInt(dot.dataset.i, 10));
+});
+
+/* ── Service Worker ─────────────────────────────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+/* ── Boot ───────────────────────────────────────────────────────────────── */
+showCity(idx);
+</script>
+</body>
+</html>
