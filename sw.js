@@ -1,4 +1,4 @@
-const CACHE = 'weer-v2';
+const CACHE = 'weer-v3';
 const ASSETS = ['/index.html', '/manifest.json', '/sw.js'];
 
 async function makeIcon(size) {
