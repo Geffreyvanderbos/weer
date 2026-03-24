@@ -1,4 +1,4 @@
-const CACHE = 'weer-v1';
+const CACHE = 'weer-v2';
 const ASSETS = ['/index.html', '/manifest.json', '/sw.js'];
 
 async function makeIcon(size) {
@@ -68,14 +68,13 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // App shell: cache first, update in background
+  // App shell: network first, cache fallback for offline
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
+    fetch(e.request)
+      .then(res => {
         if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
         return res;
-      }).catch(() => {});
-      return cached || network;
-    })
+      })
+      .catch(() => caches.match(e.request))
   );
 });

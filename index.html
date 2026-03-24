@@ -1042,6 +1042,10 @@
             /* ── Service Worker ─────────────────────────────────────────────────────── */
             if ("serviceWorker" in navigator) {
                 navigator.serviceWorker.register("sw.js").catch(() => {});
+                // Reload when a new service worker takes control so users get fresh assets
+                navigator.serviceWorker.addEventListener("controllerchange", () => {
+                    window.location.reload();
+                });
             }
 
             /* ── Boot ───────────────────────────────────────────────────────────────── */
